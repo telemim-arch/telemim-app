@@ -624,7 +624,7 @@ def manage_secretaries():
                 if insert_staff(name, login, '123', 'SECRETARY', 'Secretária', None, name):
                     # Re-fetch para obter o ID gerado e atualizar o session state
                     st.session_state.data = fetch_all_data()
-                    
+
                     # Encontrar o ID da secretária recém-criada para atualizar o secretaryId (self-reference)
                     new_sec = next((s for s in st.session_state.data['staff'] if s['email'] == login), None)
                     if new_sec and new_sec.get('secretaryId') is None:
