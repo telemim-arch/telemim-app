@@ -268,30 +268,6 @@ def manage_moves():
         
         # Edit Mode
         edited_df = st.data_editor(
-        df,
-        column_config={
-            "id": st.column_config.NumberColumn("OS #", disabled=True),
-            "Nome Cliente": st.column_config.TextColumn("Cliente", disabled=True),
-            "date": "Data",
-            "time": "Hora",
-            "status": st.column_config.SelectboxColumn(
-                "Status",
-                options=["A realizar", "Realizando", "Concluído"],
-                required=True
-            ),
-            "metragem": st.column_config.NumberColumn("Volume (m³)", min_value=0, format="%.2f"),
-            "completionDate": st.column_config.DateColumn("Data Fim"),
-            "completionTime": st.column_config.TimeColumn("Hora Fim"),
-        },
-        hide_index=True,
-        disabled=["residentId", "secretaryId", "driverId", "coordinatorId", "Supervisor"],
-        use_container_width=True
-    )
-    
-    # Save changes back to database
-    if not df.empty and 'residentId' in df.columns:
-        # Edit Mode
-        edited_df = st.data_editor(
             df,
             column_config={
                 "id": st.column_config.NumberColumn("OS #", disabled=True),
@@ -380,10 +356,6 @@ def residents_form():
         user = st.session_state.user
         sec_id = get_current_scope_id()
         
-        # Admin select secretary logic
-        user = st.session_state.user
-        sec_id = get_current_scope_id()
-        
         if user['role'] == 'ADMIN':
             secretaries = [s for s in st.session_state.data['staff'] if s['role'] == 'SECRETARY']
             
@@ -396,30 +368,25 @@ def residents_form():
             selected_sec_name = st.selectbox("Vincular à Secretária", list(sec_options.keys()))
             if selected_sec_name: sec_id = sec_options[selected_sec_name]
 
-            submit = st.form_submit_button("Salvar Morador")
-            
-            if submit:
-                if not name:
-                    st.error("Nome é obrigatório.")
+        submit = st.form_submit_button("Salvar Morador")
+        
+        if submit:
+            if not name:
+                st.error("Nome é obrigatório.")
+            else:
+                new_res = {
+                    'name': name, 'selo': selo, 'contact': contact,
+                    'originAddress': orig_addr, 'originNumber': orig_num, 'originNeighborhood': orig_bairro,
+                    'destAddress': dest_addr, 'destNumber': dest_num, 'destNeighborhood': dest_bairro,
+                    'observation': obs, 'moveDate': str(move_date), 'moveTime': str(move_time),
+                    'secretaryId': sec_id
+                }
+                if insert_resident(new_res):
+                    # Atualiza o session state após a inserção no DB
+                    st.session_state.data = fetch_all_data()
+                    st.success("Morador cadastrado com sucesso!")
                 else:
-                    # Confirmação de Ação
-                    if st.session_state.user['role'] != 'ADMIN' or st.confirm("Tem certeza que deseja cadastrar este Morador?"):
-                        # O campo 'id' é gerado automaticamente pelo DB
-                        new_res = {
-                            'name': name, 'selo': selo, 'contact': contact,
-                            'originAddress': orig_addr, 'originNumber': orig_num, 'originNeighborhood': orig_bairro,
-                            'destAddress': dest_addr, 'destNumber': dest_num, 'destNeighborhood': dest_bairro,
-                            'observation': obs, 'moveDate': str(move_date), 'moveTime': str(move_time),
-                            'secretaryId': sec_id
-                        }
-                        if insert_resident(new_res):
-                            # Atualiza o session state após a inserção no DB
-                            st.session_state.data = fetch_all_data()
-                            st.success("Morador cadastrado com sucesso!")
-                        else:
-                            st.error("Erro ao cadastrar morador no banco de dados.")
-                    else:
-                        st.warning("Cadastro cancelado.")
+                    st.error("Erro ao cadastrar morador no banco de dados.")
 
 def schedule_form():
     st.title("🗓️ Agendamento de OS")
@@ -474,79 +441,73 @@ def schedule_form():
         # Validação final para garantir que sec_id não seja None
         if sec_id is None:
             st.error("Erro: O ID da Secretária não foi definido. O Admin deve selecionar uma Secretária.")
-            return
-        
-            submit = st.form_submit_button("Confirmar Agendamento")
             
-            if submit:
-                if not res_name or not sup_name:
-                    st.error("Selecione o Morador e o Supervisor.")
+        submit = st.form_submit_button("Confirmar Agendamento")
+        
+        if submit:
+            if not res_name or not sup_name:
+                st.error("Selecione o Morador e o Supervisor.")
+            else:
+                resident_id = res_map[res_name]
+                supervisor_id = sup_map[sup_name]
+                driver_id = drive_map.get(drive_name)
+                coordinator_id = coord_map.get(coord_name)
+                
+                new_move = {
+                    'residentId': resident_id, 'date': str(date), 'time': str(time_val),
+                    'metragem': 0.0, # Metragem inicial é 0.0, será atualizada no manage_moves
+                    'supervisorId': supervisor_id, 'coordinatorId': coordinator_id,
+                    'driverId': driver_id, 'status': 'A realizar', 'secretaryId': sec_id,
+                }
+                
+                if insert_move(new_move):
+                    st.session_state.data = fetch_all_data()
+                    st.success("Ordem de Serviço agendada com sucesso!")
                 else:
-                    # Confirmação de Ação
-                    if st.session_state.user['role'] != 'ADMIN' or st.confirm("Tem certeza que deseja agendar esta Ordem de Serviço?"):
-                        resident_id = res_map[res_name]
-                        supervisor_id = sup_map[sup_name]
-                        driver_id = drive_map.get(drive_name)
-                        coordinator_id = coord_map.get(coord_name)
-                        
-                        new_move = {
-                            'residentId': resident_id, 'date': str(date), 'time': str(time_val),
-                            'metragem': 0.0, # Metragem inicial é 0.0, será atualizada no manage_moves
-                            'supervisorId': supervisor_id, 'coordinatorId': coordinator_id,
-                            'driverId': driver_id, 'status': 'A realizar', 'secretaryId': sec_id, # sec_id garantido como não-NULL
-                        }
-                        
-                        if insert_move(new_move):
-                            st.session_state.data = fetch_all_data()
-                            st.success("Ordem de Serviço agendada com sucesso!")
-                        else:
-                            st.error("Erro ao agendar Ordem de Serviço no banco de dados.")
-                    else:
-                        st.warning("Agendamento cancelado.")
+                    st.error("Erro ao agendar Ordem de Serviço no banco de dados.")
 
 def staff_management():
     st.title("👥 Recursos Humanos")
     
-    # Removendo st.tabs para evitar problemas de renderização de formulário
     with st.form("new_staff"):
-            name = st.text_input("Nome Completo")
-            email = st.text_input("Login (Email)")
-            password = st.text_input("Senha", type="password")
+        name = st.text_input("Nome Completo")
+        email = st.text_input("Login (Email)")
+        password = st.text_input("Senha", type="password")
+        
+        # Role Select
+        role_map = {r['name']: r for r in st.session_state.data['roles'] if r['permission'] not in ['ADMIN', 'SECRETARY']}
+        role_name = st.selectbox("Cargo", list(role_map.keys()))
+        
+        # Admin Linking
+        user = st.session_state.user
+        sec_id = None
+        if user['role'] == 'ADMIN':
+            secs = [s for s in st.session_state.data['staff'] if s['role'] == 'SECRETARY']
             
-            # Role Select
-            role_map = {r['name']: r for r in st.session_state.data['roles'] if r['permission'] not in ['ADMIN', 'SECRETARY']}
-            role_name = st.selectbox("Cargo", list(role_map.keys()))
-            
-            # Admin Linking
-            user = st.session_state.user
-            sec_id = None
-            if user['role'] == 'ADMIN':
-                secs = [s for s in st.session_state.data['staff'] if s['role'] == 'SECRETARY']
+            # Corrigindo o KeyError: Usar o nome da secretária se branchName for None
+            sec_options = {}
+            for s in secs:
+                key = s.get('branchName') or s['name']
+                sec_options[key] = s['id']
                 
-                # Corrigindo o KeyError: Usar o nome da secretária se branchName for None
-                sec_options = {}
-                for s in secs:
-                    key = s.get('branchName') or s['name']
-                    sec_options[key] = s['id']
-                    
-                sec_name = st.selectbox("Vincular à Secretária", list(sec_options.keys()))
-                if sec_name: sec_id = sec_options[sec_name]
-            else:
-                sec_id = user['id'] # Self link for secretary
+            sec_name = st.selectbox("Vincular à Secretária", list(sec_options.keys()))
+            if sec_name: sec_id = sec_options[sec_name]
+        else:
+            sec_id = user['id'] # Self link for secretary
 
-            submit = st.form_submit_button("Cadastrar Funcionário")
-            
-            if submit:
-                if name:
-                    role_permission = role_map[role_name]['permission']
-                    if insert_staff(name, email, password or '123', role_permission, role_name, sec_id):
-                        # Atualiza o session state após a inserção no DB
-                        st.session_state.data = fetch_all_data()
-                        st.success("Usuário criado!")
-                    else:
-                        st.error("Erro ao cadastrar funcionário no banco de dados.")
+        submit = st.form_submit_button("Cadastrar Funcionário")
+        
+        if submit:
+            if name:
+                role_permission = role_map[role_name]['permission']
+                if insert_staff(name, email, password or '123', role_permission, role_name, sec_id):
+                    # Atualiza o session state após a inserção no DB
+                    st.session_state.data = fetch_all_data()
+                    st.success("Usuário criado!")
                 else:
-                    st.error("Nome obrigatório")
+                    st.error("Erro ao cadastrar funcionário no banco de dados.")
+            else:
+                st.error("Nome obrigatório")
 
     st.subheader("Equipe Cadastrada")
     # O filtro de escopo já está na função filter_by_scope, vamos usá-la
@@ -616,19 +577,10 @@ def manage_secretaries():
     if st.button("Criar Base"):
         if name:
             login = name.lower().replace(" ", "") + "@telemim.com"
-            # Para Secretária, o secretaryId é o próprio ID (auto-referência)
-            # Como o ID é gerado pelo DB, vamos inserir sem o ID e depois atualizar o session state
             if insert_staff(name, login, '123', 'SECRETARY', 'Secretária', None, name):
-                # Re-fetch para obter o ID gerado e atualizar o session state
                 st.session_state.data = fetch_all_data()
-                
-                # Encontrar o ID da secretária recém-criada para atualizar o secretaryId (self-reference)
                 new_sec = next((s for s in st.session_state.data['staff'] if s['email'] == login), None)
                 if new_sec and new_sec.get('secretaryId') is None:
-                    # ATENÇÃO: A função insert_staff não permite UPDATE. 
-                    # Para simplificar, vamos aceitar que o secretaryId da Secretária seja NULL por enquanto,
-                    # e o escopo será tratado pelo `filter_by_scope` que verifica `item.get('id') == str(scope)`.
-                    # Em um sistema real, seria necessário um UPDATE SQL para self-reference.
                     st.success(f"Criado! Login automático: {login} / Senha: 123. (Lembre-se de configurar o secretaryId no DB se necessário para escopo)")
                 else:
                     st.success(f"Criado! Login automático: {login} / Senha: 123.")
@@ -651,7 +603,6 @@ def manage_roles():
         
         if submit:
             if name:
-                # Find key by value
                 perm_key = next(key for key, value in ROLES.items() if value == perm)
                 st.session_state.data['roles'].append({'id': int(time.time()), 'name': name, 'permission': perm_key})
                 st.success("Cargo criado.")
@@ -687,7 +638,7 @@ else:
     if user['role'] == 'ADMIN':
         options.extend(["Funcionários", "Cargos", "Secretarias", "Relatórios"])
     elif user['role'] == 'SECRETARY':
-        options.extend(["Funcionários"]) # Secretária manages her own staff
+        options.extend(["Funcionários"])
         
     # Criação da Lista de Opções para o Menu Topo (st.tabs)
     menu_options = [op for op in options if op in menu_map]
@@ -711,4 +662,3 @@ else:
     for i, choice in enumerate(menu_options):
         with tabs[i]:
             menu_map[choice]['func']()
-
